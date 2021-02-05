@@ -87,29 +87,66 @@ class TaskListPage extends HookWidget {
 
   @override
   Widget build(BuildContext context) {
+    final allTasks = useProvider<List<Task>>(taskListProvider.state);
+    return DefaultTabController(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('タスク一覧'),
+          bottom: TabBar(
+              tabs: [
+                Tab(
+                    text: "未達成"
+                ),
+                Tab(
+                    text: "達成"
+                ),
+                Tab(
+                    text: "全て"
+                )
+              ]
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            TaskListComponent(tasks: allTasks.where((todo)=> !todo.done).toList()),
+            TaskListComponent(tasks: allTasks.where((todo)=> todo.done).toList()),
+            TaskListComponent(tasks: allTasks),
+
+          ],
+        ),
+        floatingActionButton: FloatingActionButton(
+          child: Icon(Icons.add),
+          onPressed: (){
+            return Navigator.pushNamed(context, "/create");
+          },
+        ),
+      ),
+      length: 3,
+    );
+  }
+}
+
+class TaskListComponent extends HookWidget {
+
+  TaskListComponent({this.tasks});
+
+  final List<Task> tasks;
+  @override
+  Widget build(BuildContext context) {
+
     final taskList = useProvider(taskListProvider);
-    final allTasks = useProvider(taskListProvider.state);
-    return Scaffold(
-      appBar: AppBar(title: Text('タスク一覧')),
-      body: Center(
-        child: ListView.builder(itemBuilder: (context, index){
-          return ListTile(
-            title: Text(allTasks[index].title),
-            leading: Checkbox(value: allTasks[index].done, onChanged: (b){
-              taskList.toggleDone(allTasks[index].id);
-            }),
-            onTap: (){
-              taskList.toggleDone(allTasks[index].id);
-            },
-          );
-        }, itemCount: allTasks.length),
-      ),
-      floatingActionButton: FloatingActionButton(
-        child: Icon(Icons.add),
-        onPressed: (){
-          return Navigator.pushNamed(context, "/create");
-        },
-      ),
+    return Center(
+      child: ListView.builder(itemBuilder: (context, index){
+        return ListTile(
+          title: Text(tasks[index].title),
+          leading: Checkbox(value: tasks[index].done, onChanged: (b){
+            taskList.toggleDone(tasks[index].id);
+          }),
+          onTap: (){
+            taskList.toggleDone(tasks[index].id);
+          },
+        );
+      }, itemCount: tasks.length),
     );
   }
 }
