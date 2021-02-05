@@ -180,23 +180,3 @@ class TaskEditorPage extends HookWidget {
   }
 }
 
-class CounterApp extends HookWidget {
-  @override
-  Widget build(BuildContext context) {
-    final state = useProvider(counterProvider.state);
-    final counter = useProvider(counterProvider);
-
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: Text('CounterApp')),
-        body: Center(
-          child: Text(state.toString())
-        ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: ()=> counter.increment(),
-          child: Icon(Icons.add),
-        ),
-      )
-    );
-  }
-}
