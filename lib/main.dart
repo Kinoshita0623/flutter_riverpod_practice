@@ -145,6 +145,34 @@ class TaskListComponent extends HookWidget {
           onTap: (){
             taskList.toggleDone(tasks[index].id);
           },
+          trailing: PopupMenuButton(
+            child: Icon(Icons.more_vert),
+            itemBuilder: (BuildContext context){
+              return [
+                PopupMenuItem(
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit),
+                      Text("編集")
+                    ],
+                  ),
+                  value: 1
+                ),
+                PopupMenuItem(
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete),
+                      Text("削除"),
+                    ]
+                  ),
+                  value: 2
+                ),
+              ];
+            },
+            onSelected: (int value){
+
+            },
+          ),
         );
       }, itemCount: tasks.length),
     );
