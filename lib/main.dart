@@ -12,7 +12,7 @@ final counterProvider = StateNotifierProvider((_)=> Counter());
 
 final taskListProvider = StateNotifierProvider((_) => TaskList([Task(title: "hoge"), Task(title: "piyo"), Task(title: "fuga")]));
 
-class TaskRepository {
+abstract class TaskRepository {
 
   Future<Task> add(Task task) async {
     throw Exception("インターフェースです");
