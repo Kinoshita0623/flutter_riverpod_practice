@@ -89,9 +89,7 @@ class SQLiteTaskRepository implements TaskRepository {
     return await database.rawUpdate('UPDATE tasks SET title = ?, done = ? WHERE id = ?', [task.title, task.done ? 1 : 0, task.id]);
   }
 }
-final Future<Database> database = getDatabasesPath().then((String path) {
-  return openDatabase(join(path, 'doggie_database.db'));
-});
+
 
 class Task {
   Task({
