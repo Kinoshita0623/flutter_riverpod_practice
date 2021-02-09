@@ -3,12 +3,95 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:state_notifier/state_notifier.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
 
 final _uuid = Uuid();
 
 final counterProvider = StateNotifierProvider((_)=> Counter());
 
 final taskListProvider = StateNotifierProvider((_) => TaskList([Task(title: "hoge"), Task(title: "piyo"), Task(title: "fuga")]));
+
+class TaskRepository {
+
+  Future<Task> add(Task task) async {
+    throw Exception("インターフェースです");
+  }
+
+  Future<Task> find(String taskId) async {
+    throw Exception("インターフェースです");
+  }
+
+  Future<List<Task>> findAll() async {
+    throw Exception("インターフェースです");
+  }
+
+}
+
+Future<Database> createDatabase() async {
+  var databasesPath = await getDatabasesPath();
+  String path = join(databasesPath, "task.db");
+  return await openDatabase(path, version: 1,
+    onCreate: (Database db, int version) async {
+      await db.execute('CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT, done INTEGER NOT NULL)');
+    }
+  );
+}
+
+
+class SQLiteTaskRepository implements TaskRepository {
+  SQLiteTaskRepository({this.database});
+
+  final Database database;
+
+  @override
+  Future<Task> add(Task task) async{
+    return database.transaction((db) async {
+      final ex = this.find(task.id);
+      if(ex == null){
+        db.rawInsert('INSERT INTO tasks(id, title, done) values(?, ?, ?)', [task.id, task.title, task.done ? 1 : 0]);
+      }else{
+        _update(task);
+      }
+
+      return find(task.id);
+
+    });
+  }
+
+  @override
+  Future<List<Task>> findAll() async{
+    final List<Map> list = await database.rawQuery('SELECT * FROM tasks');
+    return list.map((Map map){
+      return Task(
+        id: map['id'],
+        title: map['title'],
+        done: map['done'] != 0
+      );
+    });
+  }
+  
+  @override
+  Future<Task> find(String taskId) async{
+    final List<Map> list = await database.rawQuery("SELECT * FROM tasks WHERE id = ?", [taskId]);
+    if(list.isEmpty){
+      return null;
+    }
+    final map = list[0];
+    return Task(
+      id: map['id'],
+      title: map['title'],
+      done: map['done'] != 0
+    );
+  }
+  
+  Future<int> _update(Task task) async {
+    return await database.rawUpdate('UPDATE tasks SET title = ?, done = ? WHERE id = ?', [task.title, task.done ? 1 : 0, task.id]);
+  }
+}
+final Future<Database> database = getDatabasesPath().then((String path) {
+  return openDatabase(join(path, 'doggie_database.db'));
+});
 
 class Task {
   Task({
