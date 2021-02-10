@@ -11,13 +11,7 @@ import 'package:path/path.dart';
 
 final _uuid = Uuid();
 
-final counterProvider = StateNotifierProvider((_)=> Counter());
-
-
-
-
-
-final taskListProvider = StateNotifierProvider((_)=> TaskList(InMemoryTaskRepository()));
+final taskListProvider = StateNotifierProvider((_)=> TaskList(SQLiteTaskRepository(database: createDatabase())));
 
 abstract class TaskRepository {
 
@@ -85,7 +79,6 @@ class InMemoryTaskRepository implements TaskRepository {
     }else{
       eventType = Type.CREATED;
     }
-    print("inemory:tasks:${_taskMap.length}");
     _eventStreamController.sink.add(TaskEvent(taskId: task.id, type: eventType));
     return task;
   }
@@ -124,7 +117,7 @@ class SQLiteTaskRepository implements TaskRepository {
   Future<Task> add(Task task) async{
     final db = await database;
     final batch = db.batch();
-    final ex = this.find(task.id);
+    final ex = await this.find(task.id);
     Type eventType;
     if(ex == null){
       eventType = Type.CREATED;
@@ -190,10 +183,7 @@ class Task {
   final String title;
   final bool done;
 }
-class Counter extends StateNotifier<int> {
-  Counter() : super(0);
-  void increment() => state ++;
-}
+
 void main() {
   runApp(ProviderScope(child: AppPage()));
 }
@@ -237,8 +227,9 @@ class TaskList extends StateNotifier<List<Task>> {
     this.state = await taskRepository.findAll();
   }
 
-  void delete(String id) {
-    this.state = this.state.where((t)=> t.id != id).toList();
+  void delete(String id) async{
+    await taskRepository.remove(id);
+    this.state = await taskRepository.findAll();
   }
 
 
