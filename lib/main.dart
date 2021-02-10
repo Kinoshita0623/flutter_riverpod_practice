@@ -1,14 +1,177 @@
+import 'dart:async';
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:state_notifier/state_notifier.dart';
 import 'package:uuid/uuid.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
 
 final _uuid = Uuid();
 
-final counterProvider = StateNotifierProvider((_)=> Counter());
+final taskListProvider = StateNotifierProvider((_)=> TaskList(SQLiteTaskRepository(database: createDatabase())));
 
-final taskListProvider = StateNotifierProvider((_) => TaskList([Task(title: "hoge"), Task(title: "piyo"), Task(title: "fuga")]));
+abstract class TaskRepository {
+
+  Stream<TaskEvent> get taskEvents;
+
+  Future<Task> add(Task task) async {
+    throw Exception("インターフェースです");
+  }
+
+  Future<Task> find(String taskId) async {
+    throw Exception("インターフェースです");
+  }
+
+  Future<List<Task>> findAll() async {
+    throw Exception("インターフェースです");
+  }
+
+  Future<void> remove(String taskId) async {
+    throw Exception("インターフェースです");
+  }
+
+  void dispose() {
+    throw Exception("インターフェースです");
+  }
+
+}
+
+class TaskEvent {
+  TaskEvent({this.taskId, this.type});
+
+  final Type type;
+  final String taskId;
+}
+
+enum Type {
+  UPDATED,
+  CREATED,
+  DELETED
+}
+
+Future<Database> createDatabase() async {
+  var databasesPath = await getDatabasesPath();
+  String path = join(databasesPath, "task.db");
+  return await openDatabase(path, version: 1,
+    onCreate: (Database db, int version) async {
+      await db.execute('CREATE TABLE tasks(id TEXT PRIMARY KEY, title TEXT, done INTEGER NOT NULL)');
+    }
+  );
+}
+
+class InMemoryTaskRepository implements TaskRepository {
+  final _taskMap = LinkedHashMap<String, Task>();
+  final _eventStreamController = new StreamController<TaskEvent>.broadcast();
+  Stream<TaskEvent> get taskEvents => _eventStreamController.stream;
+
+
+  @override
+  Future<Task> add(Task task) async{
+
+    bool updated = _taskMap[task.id] != null;
+    _taskMap[task.id] = task;
+    Type eventType;
+    if(updated){
+      eventType = Type.UPDATED;
+    }else{
+      eventType = Type.CREATED;
+    }
+    _eventStreamController.sink.add(TaskEvent(taskId: task.id, type: eventType));
+    return task;
+  }
+
+  @override
+  Future<Task> find(String taskId) async{
+    return _taskMap[taskId];
+  }
+
+  @override
+  Future<List<Task>> findAll() async{
+    return  _taskMap.values.toList();
+  }
+
+  @override
+  Future<void> remove(String taskId) async{
+    _taskMap.remove(taskId);
+  }
+
+  void dispose() {
+    _eventStreamController.close();
+  }
+}
+
+class SQLiteTaskRepository implements TaskRepository {
+  SQLiteTaskRepository({this.database});
+
+  final Future<Database> database;
+
+  final _streamController = StreamController<TaskEvent>.broadcast();
+
+  @override
+  Stream<TaskEvent> get taskEvents => _streamController.stream;
+
+  @override
+  Future<Task> add(Task task) async{
+    final db = await database;
+    final batch = db.batch();
+    final ex = await this.find(task.id);
+    Type eventType;
+    if(ex == null){
+      eventType = Type.CREATED;
+      batch.rawInsert('INSERT INTO tasks(id, title, done) values(?, ?, ?)', [task.id, task.title, task.done ? 1 : 0]);
+    }else{
+      eventType = Type.UPDATED;
+      _update(task);
+    }
+    _streamController.add(TaskEvent(taskId: task.id, type: eventType));
+    await batch.commit();
+    return await find(task.id);
+  }
+
+  @override
+  Future<List<Task>> findAll() async{
+    final List<Map> list = await (await database).rawQuery('SELECT * FROM tasks');
+    return list.map((Map map){
+      return Task(
+        id: map['id'],
+        title: map['title'],
+        done: map['done'] != 0
+      );
+    }).toList();
+  }
+  
+  @override
+  Future<Task> find(String taskId) async{
+    final List<Map> list = await (await database).rawQuery("SELECT * FROM tasks WHERE id = ?", [taskId]);
+    if(list.isEmpty){
+      return null;
+    }
+    final map = list[0];
+    return Task(
+      id: map['id'],
+      title: map['title'],
+      done: map['done'] != 0
+    );
+  }
+  
+  Future<int> _update(Task task) async {
+    return await (await database).rawUpdate('UPDATE tasks SET title = ?, done = ? WHERE id = ?', [task.title, task.done ? 1 : 0, task.id]);
+  }
+
+  @override
+  Future<void> remove(String taskId) async{
+    await (await database).rawDelete('DELETE FROM tasks WHERE id = ?', [taskId]);
+  }
+
+  @override
+  void dispose() {
+    _streamController.close();
+  }
+}
+
 
 class Task {
   Task({
@@ -20,49 +183,53 @@ class Task {
   final String title;
   final bool done;
 }
-class Counter extends StateNotifier<int> {
-  Counter() : super(0);
-  void increment() => state ++;
-}
+
 void main() {
   runApp(ProviderScope(child: AppPage()));
 }
 
 class TaskList extends StateNotifier<List<Task>> {
 
-  TaskList([List<Task> tasks]) : super(tasks ?? []);
+  final TaskRepository taskRepository;
+  TaskList(this.taskRepository) : super([]){
+    taskRepository.findAll().then((List<Task> value) {
+      this.state = value;
+    });
+  }
 
-  void create(String title) {
-    final newTask = Task(title: title);
-    this.state = [...this.state, newTask];
+
+
+  void create(String title){
+    print("create");
+    final f = () async {
+      await taskRepository.add(new Task(title: title));
+
+      return await taskRepository.findAll();
+    };
+    f().then((list){
+      print("created:${list.length}");
+      this.state = list;
+    });
+
   }
   
-  void updateTitle({String id, String title}) {
-    this.state = [
-      for(final task in this.state)
-        if(task.id == id)
-          Task(
-            id: id,
-            title: title,
-            done: task.done
-          )
-        else
-          task
-    ];
+  void updateTitle({String id, String title}) async{
+    final task = await taskRepository.find(id);
+    final updated = new Task(id: task.id, title: title, done: task.done);
+    await taskRepository.add(updated);
+    this.state = await taskRepository.findAll();
   }
 
-  void toggleDone(String id) {
-    this.state = [
-      for(final task in this.state)
-        if(task.id == id)
-          Task(id: task.id, title: task.title, done: !task.done)
-        else
-          task
-    ];
+  void toggleDone(String id) async{
+    final task = await taskRepository.find(id);
+    final updated = new Task(id: task.id, title: task.title, done: !task.done);
+    await taskRepository.add(updated);
+    this.state = await taskRepository.findAll();
   }
 
-  void delete(String id) {
-    this.state = this.state.where((t)=> t.id != id).toList();
+  void delete(String id) async{
+    await taskRepository.remove(id);
+    this.state = await taskRepository.findAll();
   }
 
 
@@ -70,6 +237,9 @@ class TaskList extends StateNotifier<List<Task>> {
     this.state = [];
   }
 
+  void dispose() {
+
+  }
 
 }
 
@@ -147,7 +317,6 @@ class TaskListComponent extends HookWidget {
   final List<Task> tasks;
   @override
   Widget build(BuildContext context) {
-
     final taskList = useProvider(taskListProvider);
     return Center(
       child: ListView.builder(itemBuilder: (context, index){
