@@ -13,10 +13,11 @@ final _uuid = Uuid();
 
 final counterProvider = StateNotifierProvider((_)=> Counter());
 
-final taskListProvider = StateNotifierProvider((_) => TaskList(InMemoryTaskRepository()));
 
 
 
+
+final taskListProvider = StateNotifierProvider((_)=> TaskList(InMemoryTaskRepository()));
 
 abstract class TaskRepository {
 
@@ -84,6 +85,7 @@ class InMemoryTaskRepository implements TaskRepository {
     }else{
       eventType = Type.CREATED;
     }
+    print("inemory:tasks:${_taskMap.length}");
     _eventStreamController.sink.add(TaskEvent(taskId: task.id, type: eventType));
     return task;
   }
@@ -111,7 +113,7 @@ class InMemoryTaskRepository implements TaskRepository {
 class SQLiteTaskRepository implements TaskRepository {
   SQLiteTaskRepository({this.database});
 
-  final Database database;
+  final Future<Database> database;
 
   final _streamController = StreamController<TaskEvent>.broadcast();
 
@@ -120,38 +122,37 @@ class SQLiteTaskRepository implements TaskRepository {
 
   @override
   Future<Task> add(Task task) async{
-    return database.transaction((db) async {
-      final ex = this.find(task.id);
-      Type eventType;
-      if(ex == null){
-        eventType = Type.CREATED;
-        db.rawInsert('INSERT INTO tasks(id, title, done) values(?, ?, ?)', [task.id, task.title, task.done ? 1 : 0]);
-      }else{
-        eventType = Type.UPDATED;
-        _update(task);
-      }
-      _streamController.add(TaskEvent(taskId: task.id, type: eventType));
-
-      return find(task.id);
-
-    });
+    final db = await database;
+    final batch = db.batch();
+    final ex = this.find(task.id);
+    Type eventType;
+    if(ex == null){
+      eventType = Type.CREATED;
+      batch.rawInsert('INSERT INTO tasks(id, title, done) values(?, ?, ?)', [task.id, task.title, task.done ? 1 : 0]);
+    }else{
+      eventType = Type.UPDATED;
+      _update(task);
+    }
+    _streamController.add(TaskEvent(taskId: task.id, type: eventType));
+    await batch.commit();
+    return await find(task.id);
   }
 
   @override
   Future<List<Task>> findAll() async{
-    final List<Map> list = await database.rawQuery('SELECT * FROM tasks');
+    final List<Map> list = await (await database).rawQuery('SELECT * FROM tasks');
     return list.map((Map map){
       return Task(
         id: map['id'],
         title: map['title'],
         done: map['done'] != 0
       );
-    });
+    }).toList();
   }
   
   @override
   Future<Task> find(String taskId) async{
-    final List<Map> list = await database.rawQuery("SELECT * FROM tasks WHERE id = ?", [taskId]);
+    final List<Map> list = await (await database).rawQuery("SELECT * FROM tasks WHERE id = ?", [taskId]);
     if(list.isEmpty){
       return null;
     }
@@ -164,12 +165,12 @@ class SQLiteTaskRepository implements TaskRepository {
   }
   
   Future<int> _update(Task task) async {
-    return await database.rawUpdate('UPDATE tasks SET title = ?, done = ? WHERE id = ?', [task.title, task.done ? 1 : 0, task.id]);
+    return await (await database).rawUpdate('UPDATE tasks SET title = ?, done = ? WHERE id = ?', [task.title, task.done ? 1 : 0, task.id]);
   }
 
   @override
   Future<void> remove(String taskId) async{
-    await database.rawDelete('DELETE FROM tasks WHERE id = ?', [taskId]);
+    await (await database).rawDelete('DELETE FROM tasks WHERE id = ?', [taskId]);
   }
 
   @override
@@ -208,10 +209,18 @@ class TaskList extends StateNotifier<List<Task>> {
 
 
 
-  void create(String title) {
-    taskRepository.add(new Task(title: title)).then((Task value) async{
-      this.state = await taskRepository.findAll();
+  void create(String title){
+    print("create");
+    final f = () async {
+      await taskRepository.add(new Task(title: title));
+
+      return await taskRepository.findAll();
+    };
+    f().then((list){
+      print("created:${list.length}");
+      this.state = list;
     });
+
   }
   
   void updateTitle({String id, String title}) async{
@@ -317,7 +326,6 @@ class TaskListComponent extends HookWidget {
   final List<Task> tasks;
   @override
   Widget build(BuildContext context) {
-
     final taskList = useProvider(taskListProvider);
     return Center(
       child: ListView.builder(itemBuilder: (context, index){
